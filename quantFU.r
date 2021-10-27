@@ -1,58 +1,19 @@
----
-title: "Quantification of follow-up: some early code"
-author: "Kaspar Rufibach, on behalf of follow-up quantification taks force of onco estimand WG"
-date: "Last change: `r format(Sys.time(), '%dth %B %Y')`"
-output: 
-  rmarkdown::html_document:
-    highlight: pygments
-    number_sections: no
-    self_contained: yes
-    toc: yes
-    toc_depth: 3
-    toc_float: yes
-bibliography: stat.bib
----
-
-# Background
-
-Code for potential paper of "follow-up quantification" task force of the [oncology estimand WG](www.oncoestimand.org).
-
-# Purpose of this document
-
-This R markdown file provides easy accessible code to compute all the quantifiers for follow-up. The github repository where this document is hosted is available [here](https://github.com/numbersman77/quantFU).
-
-To illustrate the functions I simulate data in this file, while in the paper draft I have used real trial data.
-
-# Setup {.tabset .tabset-fade .tabset-pills}
-
-## Packages
-
-```{r, include=FALSE, echo=FALSE}
+## ---- include=FALSE, echo=FALSE-----------------------------------------------
 # --------------------------------------------------------------
 # generate R file with code from this file
 # --------------------------------------------------------------
 knitr::purl(input = "quantFU.Rmd", output = "quantFU.r")
-```
 
 
-
-
-```{r, include=TRUE, echo=TRUE}
+## ---- include=TRUE, echo=TRUE-------------------------------------------------
 # --------------------------------------------------------------
 # packages
 # --------------------------------------------------------------
 packs <- c("survival", "rpact")    
 for (i in 1:length(packs)){library(packs[i], character.only = TRUE)}
-```
 
-## Functions
 
-Below all functions are defined. 
-
-* `quantifyFU`: This function provides all the 8 methods described in the paper draft.
-* `plot.qfu`: Plot the distributions from which medians are computed.
-
-```{r, include=TRUE, echo=TRUE}
+## ---- include=TRUE, echo=TRUE-------------------------------------------------
 # --------------------------------------------------------------
 # functions
 # --------------------------------------------------------------
@@ -190,13 +151,9 @@ plot.qfu <- function(x, which = 1:8, median = TRUE){
   
   legend("bottomleft", rownames(x$medians)[which], lty = 1, col = (1:8)[which], bty = "n", lwd = 2)
 }
-```
 
-# Simulate a clinical trial with time-to-event endpoint using `rpact`
 
-We simulate one trial using `rpact` @rpact.
-
-```{r, include=TRUE, echo=TRUE}
+## ---- include=TRUE, echo=TRUE-------------------------------------------------
 # simulate a clinical trial using rpact
 # time unit is months
 design <- getDesignGroupSequential(informationRates = 1,
@@ -243,31 +200,21 @@ ccod <- day0 + simdat$observationTime[1] * 365.25 / 12
 # check
 so1 <- summary(coxph(Surv(pfs, pfsevent) ~ arm))
 so1
-```
 
-Plot Kaplan-Meier estimates:
 
-```{r, echo = TRUE, results = 'asis', message = FALSE, fig.cap = "", fig.align = "center", fig.width = 7, fig.height = 5.5}
+## ---- echo = TRUE, results = 'asis', message = FALSE, fig.cap = "", fig.align = "center", fig.width = 7, fig.height = 5.5----
 par(las = 1)
 plot(survfit(Surv(pfs, pfsevent) ~ arm), col = 2:3, mark = "'", lty = 1, xlim = c(0, 100), 
      xlab = "PFS", ylab = "probability of being event-free")
-```
 
-# Quantification of follow-up using various methods
 
-Now let us apply the above functions:
-
-```{r, include=TRUE, echo=TRUE}
+## ---- include=TRUE, echo=TRUE-------------------------------------------------
 fu <- quantifyFU(rando = rando, event_time = pfs, event_type = event_type, ccod = ccod)
 
 # medians of all these distributions:
 fu$medians
-```
 
-# Plot distributions
 
-```{r, echo = TRUE, results = 'asis', message = FALSE, fig.cap = "", fig.align = "center", fig.width = 7, fig.height = 5.5}
+## ---- echo = TRUE, results = 'asis', message = FALSE, fig.cap = "", fig.align = "center", fig.width = 7, fig.height = 5.5----
 plot(fu)
-```
 
-# References
