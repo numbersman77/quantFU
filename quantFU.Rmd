@@ -1,0 +1,102 @@
+---
+title: "Quantification of follow-up: some early code"
+author: "Kaspar Rufibach, on behalf of follow-up quantification taks force of onco estimand WG"
+date: "Last change: `r format(Sys.time(), '%dth %B %Y')`"
+output: 
+  rmarkdown::html_document:
+    highlight: pygments
+    number_sections: no
+    self_contained: yes
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+bibliography: stat.bib
+---
+
+# Background
+
+
+# Purpose of this document
+
+This R markdown file provides easy accessible code to compute all the estimators for AE probabilities that are compared to each other in these papers. The github repository where this document is hosted is available [here](https://github.com/numbersman77/AEprobs).
+
+# Setup {.tabset .tabset-fade .tabset-pills}
+
+## Packages
+
+
+```{r, include=FALSE, echo=FALSE}
+# --------------------------------------------------------------
+# generate R file with code from this file
+# --------------------------------------------------------------
+#knitr::purl(input = "SAVVY_AEprobs.Rmd", output = "SAVVY_AEprobs.r")
+```
+
+
+
+
+```{r, include=TRUE, echo=TRUE}
+# --------------------------------------------------------------
+# packages
+# --------------------------------------------------------------
+packs <- c("survival")    
+for (i in 1:length(packs)){library(packs[i], character.only = TRUE)}
+```
+
+## Functions
+
+Below all functions are defined. 
+
+* `data_generation_constant_cens`: This function generates the dataset denoted by $S1$ in Table~4 of , i.e. we assume constant hazards for the AE hazard, the hazard for the competing event of death, and the hazard for the "soft" competing events. Censoring is uniform.
+* `incidenceProportion`: Compute incidence proportion.
+* `probTransIncidenceDensity`: Compute probability transform incidence density ignoring competing events.
+* `probTransIncidenceDensity`: Compute probability transform incidence density ignoring competing events.
+* `oneMinusKaplanMeier`: Compute 1 - Kaplan-Meier estimator.
+* `AJE`: Compute Aalen-Johansen estimator.
+
+The argument `CE` codifies the type of competing event: `CE = 2` refers to a competing event of _death only_ whereas `CE = 3` refers to _all competing events_.
+
+```{r, include=TRUE, echo=TRUE}
+# --------------------------------------------------------------
+# functions
+# --------------------------------------------------------------
+
+# function to generate dataset with constant hazards for AE, death, and soft competing events
+data_generation_constant_cens <- function(N, min.cens, max.cens, haz.AE, haz.death,
+                                          haz.soft, seed = 57 * i + 5){
+  
+  # status, 1 for AE, 2 for death 3 for soft competing event
+  set.seed(seed)
+  haz.all <- haz.AE + haz.death + haz.soft
+
+  my.data <- data.table(time_to_event = rep(0, N), type_of_event = rep(0, N))
+  my.data$time_to_event<- rexp(n = N, rate = haz.all) # event time
+  my.data$type_of_event <- rbinom(n = N, size = 2, 
+                                  prob = c(haz.AE / haz.all, haz.death / haz.all, haz.soft / haz.all)) + 1
+                                  # status, 1 for AE, 2 for death 3 for soft competing event
+  my.data$cens <- runif(n = N, min = min.cens, max = max.cens)
+  my.data$type_of_event <- as.numeric(my.data$time_to_event <= my.data$cens) * my.data$type_of_event
+  my.data$time_to_event <- pmin(my.data$time_to_event, my.data$cens)
+  my.data$id <- 1:N
+
+  # reorder columns
+  my.data <- my.data[, c("id", "time_to_event", "type_of_event", "cens")]
+  return(my.data)
+}
+
+
+```
+
+
+# Estimation of AE probabilities
+
+We generate the dataset 
+
+```{r, include=TRUE, echo=TRUE}
+
+# sample size
+N <- 200
+
+```
+
+# References
