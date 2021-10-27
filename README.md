@@ -1,8 +1,7 @@
-# SAVVY: estimation of AE probabilities
+# Quantification of follow-up
 
-* [Computation of AE probabilities](https://numbersman77.github.io/AEprobs/SAVVY_AEprobs.html)
+* [Quantification of follow-up](https://numbersman77.github.io/quantFU/quantFU.html)
 
 Authors: 
 
-* [Regina Stegherr](mailto:regina.stegherr@uni-ulm.de)
 * [Kaspar Rufibach](mailto:kaspar.rufibach@roche.com)
