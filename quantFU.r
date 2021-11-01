@@ -152,6 +152,122 @@ plot.qfu <- function(x, which = 1:8, median = TRUE){
   legend("bottomleft", rownames(x$medians)[which], lty = 1, col = (1:8)[which], bty = "n", lwd = 2)
 }
 
+# compute value of KM estimate and CI
+confIntKM_t0 <- function(time, event, t0, conf.level = 0.95){
+
+alpha <- 1 - conf.level
+
+# compute ci according to the formulas in Huesler and Zimmermann, Chapter 21
+obj <- survfit(Surv(time, event) ~ 1, conf.int = 1 - alpha, conf.type = "plain", type = "kaplan", error = "greenwood", conf.lower = "peto")
+St <- summary(obj)$surv
+t <- summary(obj)$time
+n <- summary(obj)$n.risk
+res <- matrix(NA, nrow = length(t0), ncol = 3)
+
+for (i in 1:length(t0)){
+    ti <- t0[i]
+    if (min(t) > ti){res[i, ] <- c(1, NA, NA)}
+    if (min(t) <= ti){    
+        if (ti %in% t){res[i, ] <- rep(NA, 3)} else {
+            Sti <- min(St[t < ti])
+            nti <- min(n[t < ti])        
+            Var.peto <- Sti ^ 2 * (1 - Sti) / nti
+            Cti <- exp(qnorm(1 - alpha / 2) * sqrt(Var.peto) / (Sti ^ (3 / 2) * (1 - Sti)))
+            ci.km <- c(Sti / ((1 - Cti) * Sti + Cti), Cti * Sti / ((Cti - 1) * Sti + 1))
+            res[i, ] <- c(Sti, ci.km)}
+    }
+} # end for
+
+res <- cbind(t0, res)
+dimnames(res)[[2]] <- c("t0", "S at t0", "lower.ci", "upper.ci")
+return(res)
+}
+
+# bootstrap survival data
+bootSurvivalSample <- function(surv.obj, n, M = 1000, track = TRUE){
+     
+     # bootstrap right-censored survival data according to Efron (1981)
+     # see Akritas (1986) for details
+     # surv.obj: Surv object to sample from
+     # n: sample size for samples to be drawn
+     # M: number of samples
+     
+     n.surv <- nrow(surv.obj)
+     res.mat <- data.frame(matrix(NA, ncol = M, nrow = n))
+     
+     for (i in 1:M){
+          ind <- sample(1:n.surv, size = n, replace = TRUE)
+          res.mat[, i] <- surv.obj[ind]
+          if (track){print(paste("sample ", i, " of ", M, " done", sep = ""))}
+     }
+     
+     return(res.mat)
+}
+
+# compute value and CI for difference of survival probabilities at milestone, via bootstrap
+confIntMilestoneDiff <- function(time, event, group, t0, M = 10 ^ 3, conf.level = 0.95){
+  
+  ind <- (group == levels(group)[1])
+  s.obj1 <- Surv(time[ind], event[ind])
+  s.obj2 <- Surv(time[!ind], event[!ind])
+  n1 <- sum(ind)
+  n2 <- sum(!ind)
+  
+  res1 <- bootSurvivalSample(surv.obj = s.obj1, n = n1, M = M, track = FALSE)
+  res2 <- bootSurvivalSample(surv.obj = s.obj2, n = n2, M = M, track = FALSE)
+  
+  boot.diff1 <- rep(NA, M)
+  boot.diff2 <- boot.diff1
+  
+  for (i in 1:M){
+    
+    # based on KM
+    t1km <- confIntKM_t0(time = as.matrix(res1[, i])[, "time"], event = as.matrix(res1[, i])[, "status"], t0, conf.level = 0.95)[2]
+    t2km <- confIntKM_t0(time = as.matrix(res2[, i])[, "time"], event = as.matrix(res2[, i])[, "status"], t0, conf.level = 0.95)[2]
+    boot.diff1[i] <- t1km - t2km
+    
+    # based on exponential fit
+    r1 <- exp(- coef(survreg(res1[, i] ~ 1, dist = "exponential")))
+    t1 <- 1 - pexp(t0, rate = r1)
+    
+    r2 <- exp(- coef(survreg(res2[, i] ~ 1, dist = "exponential")))
+    t2 <- 1 - pexp(t0, rate = r2)
+    
+    boot.diff2[i] <- t1 - t2 
+    
+  }
+  
+  # from bootstrap sample of differences just take symmetric quantiles to get CI for difference
+  alpha <- 1 - conf.level
+  ci1 <- quantile(boot.diff1, probs = c(alpha / 2, 1 - alpha / 2), na.rm = TRUE)
+  ci2 <- quantile(boot.diff2, probs = c(alpha / 2, 1 - alpha / 2), na.rm = TRUE)
+  
+  res <- list("km" = ci1, "exponential" = ci2)
+  return(res)
+}
+
+# compute the extreme limits as described by Betensky
+stabilityKM <- function(time, event){
+  
+  ind <- (event == 0)
+  maxevent <- max(time[event == 1])
+  
+  # extreme scenarios (not precisely) according to Betensky (2015)
+  # lower bound: every censored patient has event at censoring date
+  t_low <- time
+  c_low <- event
+  c_low[ind] <- 1
+
+  # upper bound: every censored observation has censoring time equal to maximum event time 
+  t_up <- time
+  t_up[ind & (time < maxevent)] <- maxevent
+  c_up <- event
+
+  # collect results
+  res <- list("t_low" = t_low, "c_low" = c_low, "t_up" = t_up, "c_up" = c_up)
+  return(res)
+}
+
 
 ## ---- include=TRUE, echo=TRUE-------------------------------------------------
 # simulate a clinical trial using rpact
@@ -192,7 +308,7 @@ event_type[simdat$event == FALSE & simdat$dropoutEvent == FALSE] <- 2
 pfsevent <- as.numeric(event_type == 0)
 
 # treatment arm
-arm <- factor(simdat$treatmentGroup)
+arm <- factor(simdat$treatmentGroup, levels = 1:2, labels = c("G", "R"))
 
 # define clinical cutoff date based on simulation result
 ccod <- day0 + simdat$observationTime[1] * 365.25 / 12
@@ -209,6 +325,22 @@ plot(survfit(Surv(pfs, pfsevent) ~ arm), col = 2:3, mark = "'", lty = 1, xlim = 
 
 
 ## ---- include=TRUE, echo=TRUE-------------------------------------------------
+ms <- c(36, 48)
+msR1 <- confIntKM_t0(time = pfs[arm == "R"], event = pfsevent[arm == "R"], t0 = ms, conf.level = 0.95)
+msG1 <- confIntKM_t0(time = pfs[arm == "G"], event = pfsevent[arm == "G"], t0 = ms, conf.level = 0.95)
+msR1
+msG1
+
+# differences
+ms1d1 <- confIntMilestoneDiff(time = pfs, event = pfsevent, group = arm, 
+                             t0 = ms[1], M = 10 ^ 3, conf.level = 0.95)$km
+ms2d1 <- confIntMilestoneDiff(time = pfs, event = pfsevent, group = arm, 
+                              t0 = ms[2], M = 10 ^ 3, conf.level = 0.95)$km
+ms1d1
+ms2d1
+
+
+## ---- include=TRUE, echo=TRUE-------------------------------------------------
 fu <- quantifyFU(rando = rando, event_time = pfs, event_type = event_type, ccod = ccod)
 
 # medians of all these distributions:
@@ -217,4 +349,184 @@ fu$medians
 
 ## ---- echo = TRUE, results = 'asis', message = FALSE, fig.cap = "", fig.align = "center", fig.width = 7, fig.height = 5.5----
 plot(fu)
+
+
+## ---- include=TRUE, echo=TRUE-------------------------------------------------
+library(rpact)
+
+# Simulation assuming a delayed treatment effect
+alpha <- 0.05
+beta <- 0.2
+design <- getDesignGroupSequential(informationRates = 1, typeOfDesign = "asOF", sided = 1, 
+                                   alpha = alpha / 2, beta = beta)
+
+piecewiseSurvivalTime <- c(0, 12)
+baserate <- log(2) / 60
+hr_nph <- 0.65
+dropoutRate <- 0.025
+dropoutTime <- 12
+accrualTime <- 0:6
+accrualIntensity <- 6 * 1:7
+plannedEvents <- 389
+maxNumberOfSubjects <- 1000
+maxNumberOfIterations <- 10 ^ 3
+
+simulationResultNPH <- getSimulationSurvival(design,
+                                             piecewiseSurvivalTime = piecewiseSurvivalTime,
+                                             lambda2 = c(baserate, baserate),
+                                             lambda1 = c(baserate, hr_nph * baserate),
+                                             dropoutRate1 = dropoutRate, 
+                                             dropoutRate2 = dropoutRate, dropoutTime = dropoutTime,
+                                             accrualTime = accrualTime, 
+                                             accrualIntensity = accrualIntensity,
+                                             plannedEvents = plannedEvents,
+                                             directionUpper = FALSE,
+                                             maxNumberOfSubjects = maxNumberOfSubjects,
+                                             maxNumberOfIterations = maxNumberOfIterations,
+                                             maxNumberOfRawDatasetsPerStage = 10 ^ 4,
+                                             seed = 2021)
+
+# power for logrank test
+simulationResultNPH$overallReject
+
+# access raw simulation data
+simdat <- getRawData(simulationResultNPH)
+
+# extract simulation run 1 for example in paper
+simpick <- 1
+simdat_run1 <- subset(simdat, iterationNumber == simpick)
+
+# median time-to-dropout
+med_do <- - log(2) / log((1- dropoutRate)) * dropoutTime
+
+# create variable with randomization dates
+# note that addition / subtraction of date objects happens in days 
+# --> multiplication by 365.25 / 12 ~= 30 below
+day0_nph <- as.Date("2016-01-31", origin = "1899-12-30")
+rando_nph <- day0_nph + simdat_run1$accrualTime * 365.25 / 12
+pfs1_nph <- simdat_run1$timeUnderObservation
+
+# event type variable: 0 = event, 1 = lost to FU, 2 = administratively censored
+event_type_nph <- rep(NA, nrow(simdat_run1))
+event_type_nph[simdat_run1$event == TRUE] <- 0
+event_type_nph[simdat_run1$event == FALSE & simdat_run1$dropoutEvent == TRUE] <- 1
+event_type_nph[simdat_run1$event == FALSE & simdat_run1$dropoutEvent == FALSE] <- 2 
+
+# PFS event
+pfsevent1_nph <- as.numeric(event_type_nph == 0)
+
+# treatment arm
+arm_nph <- factor(simdat_run1$treatmentGroup, levels = 1:2, labels = c("G", "R"))
+
+# define clinical cutoff date based on simulation result
+ccod1_nph <- day0_nph + simdat_run1$observationTime[1] * 365.25 / 12
+
+
+## ---- echo = TRUE, results = 'asis', message = FALSE, fig.cap = "", fig.align = "center", fig.width = 7, fig.height = 5.5----
+par(las = 1, mar = c(4.5, 4.5, 2, 1), oma = c(0, 0, 3, 0))
+
+so1_nph <- survfit(Surv(pfs1_nph, pfsevent1_nph) ~ arm_nph)
+plot(so1_nph, col = 2:3, mark = "'", lty = 1, xlim = c(0, 100), xlab = "PFS (months)", 
+     ylab = "probability of not having a PFS event")
+
+abline(v = ms, col = grey(0.5), lwd = 2, lty = 2)
+
+# title
+mtext("Delayed separation", 3, line = 0, outer = TRUE)
+
+
+## ---- include=TRUE, echo=TRUE-------------------------------------------------
+ms <- c(36, 48)
+msR1_nph <- confIntKM_t0(time = pfs1_nph[arm == "R"], event = pfsevent1_nph[arm == "R"], 
+                         t0 = ms, conf.level = 0.95)
+msG1_nph <- confIntKM_t0(time = pfs1_nph[arm == "G"], event = pfsevent1_nph[arm == "G"], 
+                         t0 = ms, conf.level = 0.95)
+msR1_nph
+msG1_nph
+
+# differences
+ms1d1_nph <- confIntMilestoneDiff(time = pfs1_nph, event = pfsevent1_nph, group = arm, 
+                             t0 = ms[1], M = 10 ^ 3, conf.level = 0.95)$km
+ms2d1_nph <- confIntMilestoneDiff(time = pfs1_nph, event = pfsevent1_nph, group = arm, 
+                              t0 = ms[2], M = 10 ^ 3, conf.level = 0.95)$km
+ms1d1_nph
+ms2d1_nph
+
+
+## ---- echo = TRUE, results = 'asis', message = FALSE, fig.cap = "", fig.align = "center", fig.width = 7, fig.height = 5.5----
+par(las = 1, mar = c(4.5, 4.5, 2, 1), oma = c(0, 0, 3, 0))
+
+so2_nph <- survfit(Surv(pfs1_nph, pfsevent1_nph) ~ 1, subset = (arm_nph == "G"))
+plot(so2_nph, col = 2, mark = "'", lty = 1, xlim = c(0, 100), xlab = "PFS (months)", 
+     ylab = "probability of not having a PFS event", conf.int = FALSE)
+
+abline(v = ms, col = grey(0.5), lwd = 2, lty = 2)
+
+# title
+mtext("Delayed separation", 3, line = 0, outer = TRUE)
+
+# add Betensky's scenarios
+stab_del_t <- stabilityKM(time = pfs1_nph[arm_nph == "G"], pfsevent1_nph[arm_nph == "G"])
+stab_del_c <- stabilityKM(time = pfs1_nph[arm_nph == "R"], pfsevent1_nph[arm_nph == "R"])
+
+# lower
+so2_nph_low <- survfit(Surv(stab_del_t$t_low, stab_del_t$c_low) ~ 1)
+lines(so2_nph_low, col = grey(0.5), lty = 1, conf.int = FALSE)
+
+# upper
+so2_nph_up <- survfit(Surv(stab_del_t$t_up, stab_del_t$c_up) ~ 1)
+lines(so2_nph_up, col = grey(0.5), lty = 1, conf.int = FALSE)
+
+
+## ---- include=TRUE, echo=TRUE-------------------------------------------------
+library(survRM2)
+
+# restriction timepoint for RMST
+tau <- NULL   # use minimum of the two last observed times in each arm
+
+# compute RMST for every simulated dataset
+# use simulationResultNPH from p30
+
+rmst_est <- rep(NA, maxNumberOfIterations)
+rmst_pval <- rmst_est
+logrank_pval <- rmst_est
+
+for (i in 1:maxNumberOfIterations){
+  sim.i <- subset(simdat, iterationNumber == i)
+  
+  time <- sim.i$timeUnderObservation
+  event <- as.numeric(sim.i$event)
+  arm <- factor(as.numeric(sim.i$treatmentGroup == 1))
+    
+  rmst <- rmst2(time = time, status = event, arm = arm, tau = NULL)  
+  if (i == 1){rmst_sim1 <- rmst}
+  
+  # we look at difference in RMST between arms
+  rmst_est[i] <- rmst$unadjusted.result[1, "Est."]
+  rmst_pval[i] <- rmst$unadjusted.result[1, "p"]
+  
+  # logrank p-value (score test from Cox regression)
+  logrank_pval[i] <- summary(coxph(Surv(time, event) ~ arm))$sctest["pvalue"]
+}
+
+# empirical power
+rmst_power <- mean(rmst_pval <= 0.05)
+rmst_power
+
+mean(logrank_pval <= 0.05)
+simulationResultNPH$overallReject
+
+
+## ---- include=TRUE, echo=TRUE-------------------------------------------------
+# compute various follow-up quantities
+fu1_nph <- quantifyFU(rando = rando_nph, event_time = pfs1_nph, 
+                      event_type = event_type_nph, ccod = ccod1_nph)
+fu1med_nph <- fu1_nph$medians
+
+# medians of all these distributions:
+fu1med_nph
+
+
+## ---- echo = TRUE, results = 'asis', message = FALSE, fig.cap = "", fig.align = "center", fig.width = 7, fig.height = 5.5----
+plot(fu1_nph)
 
