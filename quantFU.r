@@ -9,7 +9,7 @@ knitr::purl(input = "quantFU.Rmd", output = "quantFU.r")
 # --------------------------------------------------------------
 # packages
 # --------------------------------------------------------------
-packs <- c("survival", "rpact")    
+packs <- c("survival", "rpact", "survRM2")    
 for (i in 1:length(packs)){library(packs[i], character.only = TRUE)}
 
 
@@ -352,8 +352,6 @@ plot(fu)
 
 
 ## ---- include=TRUE, echo=TRUE-------------------------------------------------
-library(rpact)
-
 # Simulation assuming a delayed treatment effect
 alpha <- 0.05
 beta <- 0.2
@@ -479,8 +477,6 @@ lines(so2_nph_up, col = grey(0.5), lty = 1, conf.int = FALSE)
 
 
 ## ---- include=TRUE, echo=TRUE-------------------------------------------------
-library(survRM2)
-
 # restriction timepoint for RMST
 tau <- NULL   # use minimum of the two last observed times in each arm
 
