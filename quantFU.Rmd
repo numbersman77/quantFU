@@ -126,10 +126,10 @@ quantifyFU <- function(rando, event_time, event_type, ccod){
     t <- spfu[i]
   
     # proportion with pfu > t
-    pet <- mean(spfu > t)
+    pet <- mean(pfu > t)
   
     # time to LTFU
-    so6 <- survfit(Surv(event_time, ltfu_cens) ~ 1, subset = (spfu >= t))
+    so6 <- survfit(Surv(event_time, ltfu_cens) ~ 1, subset = (pfu >= t))
     pltet <- ifelse(max(so6$time > t) == 0, 0, so6$surv[so6$time > t][1])
   
     pt[i] <- pltet * pet
