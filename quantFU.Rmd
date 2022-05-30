@@ -47,7 +47,7 @@ for (i in 1:length(packs)){library(packs[i], character.only = TRUE)}
 
 Below all functions are defined. 
 
-* `quantifyFU`: This function provides all the 8 methods described in the paper draft.
+* `quantifyFU`: This function provides all the seven methods described in the paper draft.
 * `plot.qfu`: Plot the distributions from which medians are computed.
 
 ```{r, include=TRUE, echo=TRUE}
@@ -72,9 +72,6 @@ quantifyFU <- function(rando, event_time, event_type, ccod){
 
   n <- length(rando)
 
-  # define empirical survival function
-  ecdf <- (n - 1):0 / n
-  
   # objects to collect distributions
   res <- NULL
   
@@ -91,15 +88,16 @@ quantifyFU <- function(rando, event_time, event_type, ccod){
   event_time_cens <- as.numeric(primary_event == 0)
 
   # observation time regardless of censoring
-  res[[1]] <- cbind(sort(event_time), ecdf)
+  ecdf1 <- as.list(environment(ecdf(event_time)))
+  res[[1]] <- cbind(ecdf1$x, 1 - ecdf1$y)
   m1 <- median(event_time)
-
+  
   # observation time for those event-free
   d2 <- event_time[event_time_cens == 1]
-  n2 <- length(d2)
-  res[[2]] <- cbind(sort(d2), (n2 - 1):0 / n2)
+  ecdf2 <- as.list(environment(ecdf(d2)))
+  res[[2]] <- cbind(ecdf2$x, 1 - ecdf2$y)
   m2 <- median(d2)
-  
+
   # time to censoring
   so3 <- survfit(Surv(event_time, event_time_cens) ~ 1)
   res[[3]] <- so3
@@ -107,16 +105,18 @@ quantifyFU <- function(rando, event_time, event_type, ccod){
 
   # time to CCOD, potential followup
   pfu <- as.numeric((ccod - rando) / 365.25 * 12)
-  res[[4]] <- cbind(sort(pfu), ecdf)
+  ecdf4 <- as.list(environment(ecdf(pfu)))
+  res[[4]] <- cbind(ecdf4$x, 1 - ecdf4$y)
   m4 <- median(pfu)
-
+  
   # known function time
   m5 <- rep(NA, n)
   m5[event_time_cens == 1] <- event_time[event_time_cens == 1]
   m5[primary_event == 1] <- pfu[primary_event == 1]
-  res[[5]] <- cbind(sort(m5), ecdf)
+  ecdf5 <- as.list(environment(ecdf(m5)))
+  res[[5]] <- cbind(ecdf5$x, 1 - ecdf5$y)
   m5 <- median(m5)
-
+  
   # Korn's potential follow-up time
   spfu <- sort(pfu)
   pt <- rep(NA, n)
@@ -126,7 +126,7 @@ quantifyFU <- function(rando, event_time, event_type, ccod){
     t <- spfu[i]
   
     # proportion with pfu > t
-    pet <- mean(pfu > t)
+    pet <- mean(spfu > t)
   
     # time to LTFU
     so6 <- survfit(Surv(event_time, ltfu_cens) ~ 1, subset = (pfu >= t))
@@ -140,29 +140,19 @@ quantifyFU <- function(rando, event_time, event_type, ccod){
   # now take the median of the distribution, see plot(t, pt, type = "s")
   m6 <- max(spfu[pt >= 0.5])
 
-  # Modified potential follow-up time
+  # Potential follow-up considering events
   m7 <- rep(NA, n)
-  m7[ltfu_cens == 1] <- pmin(pfu, event_time)[ltfu_cens == 1]
-  m7[ltfu_cens == 0] <- pfu[ltfu_cens == 0]
-  res[[7]] <- cbind(sort(m7), ecdf)
+  m7[event_time_cens == 1] <- pfu[event_time_cens == 1]
+  m7[primary_event == 1] <- event_time[primary_event == 1]
+  ecdf7 <- as.list(environment(ecdf(m7)))
+  res[[7]] <- cbind(ecdf7$x, 1 - ecdf7$y)
   m7 <- median(m7)
 
-  # Potential follow-up considering events
-  m8 <- rep(NA, n)
-  m8[event_time_cens == 1] <- pfu[event_time_cens == 1]
-  m8[primary_event == 1] <- event_time[primary_event == 1]
-  res[[8]] <- cbind(sort(m8), ecdf)
-  m8 <- median(m8)
-
   # summarize results for medians
-  dat <- matrix(NA, nrow = 8, ncol = 1)
-  dat[, 1] <- c(m1, m2, m3, m4, m5, m6, m7, m8)
-  rownames(dat) <- c("Observation time regardless of censoring", 
-                     "Observation time for those event-free", 
-                     "Time to censoring", "Time to CCOD", 
-                     "Known function time", 
-                     "Korn potential follow-up", 
-                     "Modified potential follow-up", 
+  dat <- matrix(NA, nrow = 7, ncol = 1)
+  dat[, 1] <- c(m1, m2, m3, m4, m5, m6, m7)
+  rownames(dat) <- c("Observation time regardless of censoring", "Observation time for those event-free", 
+                     "Time to censoring", "Time to CCOD", "Known function time", "Korn potential follow-up", 
                      "Potential follow-up considering events")
   colnames(dat) <- "median"
   
@@ -172,13 +162,12 @@ quantifyFU <- function(rando, event_time, event_type, ccod){
 }
 
 # function to plot distributions of various quantifiers
-plot.qfu <- function(x, which = 1:8, median = TRUE){
+plot.qfu <- function(x, which = 1:7, median = TRUE){
   
   dat <- x$distributions
   
   par(las = 1)
-  plot(0, 0, type = "n", xlim = c(0, 1.05 * max(dat[[1]][, 1])), ylim = c(0, 1), 
-       xlab = "time-to-event endpoint", ylab = "probability", 
+  plot(0, 0, type = "n", xlim = c(0, 1.05 * max(dat[[1]][, 1])), ylim = c(0, 1), xlab = "time-to-event endpoint", ylab = "probability", 
        main = "Distributions used for quantification of follow-up")
   if (3 %in% which){lines(dat[[3]], col = 3, conf.int = FALSE)}
   which <- which[which != 3]
@@ -186,22 +175,22 @@ plot.qfu <- function(x, which = 1:8, median = TRUE){
   
   if(isTRUE(median)){abline(h = 0.5, col = grey(0.5), lwd = 2)}
   
-  legend("bottomleft", rownames(x$medians)[which], lty = 1, col = (1:8)[which], bty = "n", lwd = 2)
+  legend("bottomleft", rownames(x$medians)[which], lty = 1, col = (1:7)[which], bty = "n", lwd = 2)
 }
 
 # compute value of KM estimate and CI
 confIntKM_t0 <- function(time, event, t0, conf.level = 0.95){
 
-alpha <- 1 - conf.level
+  alpha <- 1 - conf.level
 
-# compute ci according to the formulas in Huesler and Zimmermann, Chapter 21
-obj <- survfit(Surv(time, event) ~ 1, conf.int = 1 - alpha, conf.type = "plain", type = "kaplan", error = "greenwood", conf.lower = "peto")
-St <- summary(obj)$surv
-t <- summary(obj)$time
-n <- summary(obj)$n.risk
-res <- matrix(NA, nrow = length(t0), ncol = 3)
+  # compute ci according to the formulas in Huesler and Zimmermann, Chapter 21
+  obj <- survfit(Surv(time, event) ~ 1, conf.int = 1 - alpha, conf.type = "plain", type = "kaplan", error = "greenwood", conf.lower = "peto")
+  St <- summary(obj)$surv
+  t <- summary(obj)$time
+  n <- summary(obj)$n.risk
+  res <- matrix(NA, nrow = length(t0), ncol = 3)
 
-for (i in 1:length(t0)){
+  for (i in 1:length(t0)){
     ti <- t0[i]
     if (min(t) > ti){res[i, ] <- c(1, NA, NA)}
     if (min(t) <= ti){    
@@ -212,12 +201,12 @@ for (i in 1:length(t0)){
             Cti <- exp(qnorm(1 - alpha / 2) * sqrt(Var.peto) / (Sti ^ (3 / 2) * (1 - Sti)))
             ci.km <- c(Sti / ((1 - Cti) * Sti + Cti), Cti * Sti / ((Cti - 1) * Sti + 1))
             res[i, ] <- c(Sti, ci.km)}
-    }
-} # end for
+    } # end if
+  } # end for
 
-res <- cbind(t0, res)
-dimnames(res)[[2]] <- c("t0", "S at t0", "lower.ci", "upper.ci")
-return(res)
+  res <- cbind(t0, res)
+  dimnames(res)[[2]] <- c("t0", "S at t0", "lower.ci", "upper.ci")
+  return(res)
 }
 
 # bootstrap survival data
